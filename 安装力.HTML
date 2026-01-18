@@ -123,6 +123,7 @@
             border-radius: 6px;
             margin-bottom: 15px;
             border: 1px solid #e0e0e0;
+            position: relative;
         }
         
         .blade-item h4 {
@@ -144,17 +145,45 @@
             font-size: 1.2rem;
         }
         
+        .layer-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 15px;
+            gap: 10px;
+        }
+        
         .layer-item {
             background-color: white;
             padding: 15px;
             border-radius: 6px;
             margin-bottom: 15px;
             border: 1px solid #e0e0e0;
+            position: relative;
         }
         
         .layer-item h4 {
             color: #444;
             margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .delete-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .delete-btn:hover {
+            background-color: #c0392b;
         }
         
         .model-selection {
@@ -215,6 +244,29 @@
         
         .btn-secondary:hover {
             background-color: #e0e0e0;
+        }
+        
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 0.9rem;
+        }
+        
+        .btn-add {
+            background-color: #27ae60;
+            color: white;
+        }
+        
+        .btn-add:hover {
+            background-color: #219653;
+        }
+        
+        .btn-remove {
+            background-color: #e74c3c;
+            color: white;
+        }
+        
+        .btn-remove:hover {
+            background-color: #c0392b;
         }
         
         .charts-container {
@@ -325,6 +377,10 @@
                 flex-direction: column;
                 gap: 10px;
             }
+            
+            .layer-actions {
+                flex-direction: column;
+            }
         }
     </style>
 </head>
@@ -396,6 +452,10 @@
                 <h2>地层参数</h2>
                 <div class="layer-params">
                     <h3>地层参数（从地表向下排列）</h3>
+                    <div class="layer-actions">
+                        <button id="addLayerBtn" class="btn-primary btn-small btn-add">添加地层</button>
+                        <button id="removeLastLayerBtn" class="btn-secondary btn-small btn-remove">删除最后地层</button>
+                    </div>
                     <div id="layer-inputs">
                         <!-- Layer inputs will be generated dynamically -->
                     </div>
@@ -483,6 +543,7 @@
         let torqueChart = null;
         let forceChart = null;
         let calculationData = null;
+        let currentLayers = []; // 存储地层数据
         
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -497,6 +558,17 @@
             updateBladeInputs(n);
             
             // 初始化地层参数
+            initializeLayers();
+        }
+        
+        // 初始化地层数据
+        function initializeLayers() {
+            // 默认地层数据
+            currentLayers = [
+                { depth: 0, gamma: 16.99, Dr: 0.5, phi_p: 48, phi_cv: 32 },
+                { depth: 20, gamma: 16.99, Dr: 0.5, phi_p: 48, phi_cv: 32 }
+            ];
+            
             updateLayerInputs();
         }
         
@@ -506,6 +578,8 @@
             document.getElementById('backBtn').addEventListener('click', goToInput);
             document.getElementById('resetBtn').addEventListener('click', resetToDefaults);
             document.getElementById('exportBtn').addEventListener('click', exportResults);
+            document.getElementById('addLayerBtn').addEventListener('click', addLayer);
+            document.getElementById('removeLastLayerBtn').addEventListener('click', removeLastLayer);
             document.getElementById('n').addEventListener('change', function() {
                 const n = parseInt(this.value);
                 updateBladeInputs(n);
@@ -549,21 +623,16 @@
             const container = document.getElementById('layer-inputs');
             container.innerHTML = '';
             
-            // 默认地层数据
-            const defaultLayers = [
-                { depth: 0, gamma: 16.99, Dr: 0.5, phi_p: 48, phi_cv: 32 },
-                { depth: 20, gamma: 16.99, Dr: 0.5, phi_p: 48, phi_cv: 32 }
-            ];
-            
-            for (let i = 0; i < defaultLayers.length; i++) {
-                const layer = defaultLayers[i];
+            for (let i = 0; i < currentLayers.length; i++) {
+                const layer = currentLayers[i];
                 const layerDiv = document.createElement('div');
                 layerDiv.className = 'layer-item';
                 layerDiv.innerHTML = `
-                    <h4>地层 ${i+1}</h4>
+                    <h4>地层 ${i+1} ${i === 0 ? '(地表)' : ''} ${i === currentLayers.length - 1 ? '(最底层)' : ''}</h4>
+                    ${i > 0 ? '<button class="delete-btn" data-index="' + i + '">删除</button>' : ''}
                     <div class="input-group">
-                        <label for="depth${i}">深度下限 (m)</label>
-                        <input type="number" id="depth${i}" step="0.1" value="${layer.depth}" min="0">
+                        <label for="depth${i}">层顶埋深 (m)</label>
+                        <input type="number" id="depth${i}" step="0.1" value="${layer.depth}" min="0" ${i === 0 ? 'readonly' : ''}>
                     </div>
                     <div class="input-group">
                         <label for="gamma${i}">重度 (kN/m³)</label>
@@ -583,7 +652,75 @@
                     </div>
                 `;
                 container.appendChild(layerDiv);
+                
+                // 为删除按钮添加事件监听器
+                if (i > 0) {
+                    const deleteBtn = layerDiv.querySelector('.delete-btn');
+                    deleteBtn.addEventListener('click', function() {
+                        removeLayer(parseInt(this.getAttribute('data-index')));
+                    });
+                }
+                
+                // 为深度输入框添加事件监听器，确保深度递增
+                if (i > 0) {
+                    const depthInput = layerDiv.querySelector(`#depth${i}`);
+                    depthInput.addEventListener('change', function() {
+                        validateLayerDepths();
+                    });
+                }
             }
+            
+            // 更新删除最后地层按钮的状态
+            document.getElementById('removeLastLayerBtn').disabled = currentLayers.length <= 1;
+        }
+        
+        // 添加地层
+        function addLayer() {
+            // 获取最后一个地层
+            const lastLayer = currentLayers[currentLayers.length - 1];
+            
+            // 创建新地层，深度为最后一个地层深度+10，其他参数与最后一个地层相同
+            const newLayer = {
+                depth: lastLayer.depth + 10,
+                gamma: lastLayer.gamma,
+                Dr: lastLayer.Dr,
+                phi_p: lastLayer.phi_p,
+                phi_cv: lastLayer.phi_cv
+            };
+            
+            currentLayers.push(newLayer);
+            updateLayerInputs();
+        }
+        
+        // 删除指定地层
+        function removeLayer(index) {
+            if (index <= 0 || index >= currentLayers.length) return;
+            
+            currentLayers.splice(index, 1);
+            updateLayerInputs();
+        }
+        
+        // 删除最后一个地层
+        function removeLastLayer() {
+            if (currentLayers.length <= 1) return;
+            
+            currentLayers.pop();
+            updateLayerInputs();
+        }
+        
+        // 验证地层深度是否递增
+        function validateLayerDepths() {
+            for (let i = 1; i < currentLayers.length; i++) {
+                const prevDepth = parseFloat(document.getElementById(`depth${i-1}`).value);
+                const currDepth = parseFloat(document.getElementById(`depth${i}`).value);
+                
+                if (currDepth <= prevDepth) {
+                    alert(`地层 ${i+1} 的深度必须大于地层 ${i} 的深度`);
+                    document.getElementById(`depth${i}`).value = prevDepth + 0.1;
+                    return false;
+                }
+            }
+            return true;
         }
         
         // 重置参数为默认值
@@ -606,6 +743,11 @@
         
         // 转到结果页面
         function goToResults() {
+            // 验证地层深度
+            if (!validateLayerDepths()) {
+                return;
+            }
+            
             // 收集输入数据
             calculationData = collectInputData();
             
@@ -657,15 +799,15 @@
             }
             
             // 获取地层参数
-            const layerElements = document.querySelectorAll('.layer-item');
-            layerElements.forEach((element, index) => {
-                const depth = parseFloat(document.getElementById(`depth${index}`).value);
-                const gamma = parseFloat(document.getElementById(`gamma${index}`).value);
-                const Dr = parseFloat(document.getElementById(`Dr${index}`).value);
-                const phi_p = parseFloat(document.getElementById(`phi_p${index}`).value);
-                const phi_cv = parseFloat(document.getElementById(`phi_cv${index}`).value);
+            data.layerData = [];
+            for (let i = 0; i < currentLayers.length; i++) {
+                const depth = parseFloat(document.getElementById(`depth${i}`).value);
+                const gamma = parseFloat(document.getElementById(`gamma${i}`).value);
+                const Dr = parseFloat(document.getElementById(`Dr${i}`).value);
+                const phi_p = parseFloat(document.getElementById(`phi_p${i}`).value);
+                const phi_cv = parseFloat(document.getElementById(`phi_cv${i}`).value);
                 data.layerData.push([depth, gamma, Dr, phi_p, phi_cv]);
-            });
+            }
             
             return data;
         }
